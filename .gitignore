@@ -1,3 +1,4 @@
 ./data
 src/.venv
 docs
+src/testlocal
