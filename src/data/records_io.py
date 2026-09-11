@@ -2,7 +2,8 @@ import json
 from datetime import datetime
 from pathlib import Path
 from src.app_config import RECORD_DIR
-from src.core.models import ToolCallRecord, DetectionRun
+from src.core.models import ToolCallRecord, DetectionRun, DetectionResult
+
 
 class RecordsIO:
     def __init__(self, record_dir: Path = RECORD_DIR):
@@ -63,7 +64,6 @@ class RecordsIO:
         for d in self._read_lines("detection", month):
             results_data = d.pop("results", [])
             run = DetectionRun(**d)
-            from src.core.models import DetectionResult
             run.results = [DetectionResult(**r) for r in results_data]
             runs.append(run)
         return runs
