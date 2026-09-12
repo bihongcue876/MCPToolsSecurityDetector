@@ -1,8 +1,8 @@
 # 服务器配置与参数（登记）
 import json
 from pathlib import Path
-from src.app_config import SERVERS_CFG_PATH  # server config json file path here.
-from src.core.models import ServerConfig  # server config data module class here.
+from app_config import SERVERS_CFG_PATH  # server config json file path here.
+from core.models import ServerConfig  # server config data module class here.
 
 
 # server config manage only

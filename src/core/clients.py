@@ -3,8 +3,8 @@ import json
 import os
 import subprocess
 from abc import ABC, abstractmethod
-from src.core.models import ServerConfig, ToolInfo
-from src.app_config import APP_NAME,VERSION
+from core.models import ServerConfig, ToolInfo
+from app_config import APP_NAME,VERSION
 from typing import Any
 
 # MCP 协议版本（客户端声明使用的版本）

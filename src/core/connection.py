@@ -1,6 +1,6 @@
 # 用于连接，并作为连接后其他工作的基础
-from src.core.clients import MCPClient, create_client
-from src.core.models import ServerConfig, ToolInfo
+from core.clients import MCPClient, create_client
+from core.models import ServerConfig, ToolInfo
 
 
 class ConnectionManager:

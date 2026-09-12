@@ -1,8 +1,8 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from src.app_config import RECORD_DIR
-from src.core.models import ToolCallRecord, DetectionRun, DetectionResult
+from app_config import RECORD_DIR
+from core.models import ToolCallRecord, DetectionRun, DetectionResult
 
 
 class RecordsIO:
