@@ -2,3 +2,5 @@
 src/.venv
 docs
 src/testlocal
+__pycache__
+.vscode
