@@ -109,23 +109,37 @@ class WorkspaceMain(QWidget):
         w = QWidget()
         layout = QHBoxLayout(w)
 
+        # 左侧工具列表
         left = QVBoxLayout()
         left.addWidget(QLabel("工具列表"))
         self.overview_tool_list = QListWidget()
+        self.overview_tool_list.currentRowChanged.connect(self._on_tool_selected)
         left.addWidget(self.overview_tool_list)
         layout.addLayout(left, 1)
 
+        # 右侧工具测试
         right = QVBoxLayout()
         right.addWidget(QLabel("工具测试"))
-        self.overview_tool_combo = QComboBox()
-        right.addWidget(self.overview_tool_combo)
+
+        right.addWidget(QLabel("描述："))
+        self.overview_desc = QTextEdit()
+        self.overview_desc.setReadOnly(True)
+        self.overview_desc.setMaximumHeight(80)
+        right.addWidget(self.overview_desc)
+
         right.addWidget(QLabel("输入（JSON 对象）："))
         self.overview_input = QTextEdit()
         right.addWidget(self.overview_input)
+
+        btn_fill = QPushButton("根据Schema形式形成/重置输入示例")
+        btn_fill.clicked.connect(self._on_fill_example_clicked)
+        right.addWidget(btn_fill)
+
         right.addWidget(QLabel("输出："))
         self.overview_output = QTextEdit()
         self.overview_output.setReadOnly(True)
         right.addWidget(self.overview_output)
+
         self.btn_execute = QPushButton("执行")
         self.btn_execute.clicked.connect(self._on_execute_clicked)
         right.addWidget(self.btn_execute)
@@ -302,35 +316,33 @@ class WorkspaceMain(QWidget):
         self.connection.disconnect()
         self.btn_disconnect.setEnabled(False)
         self.overview_tool_list.clear()
-        self.overview_tool_combo.clear()
         self.overview_output.clear()
         self._set_status("已断开连接")
 
     # ---------- 工具列表与执行 ----------
     def refresh_tool_list(self):
-        """从当前连接读取工具列表，填充左列表和下拉框"""
         self.overview_tool_list.clear()
-        self.overview_tool_combo.clear()
+        self._tools_cache = {}
         try:
             tools = self.connection.list_tools(refresh=True)
         except Exception as e:
             QMessageBox.warning(self, "获取工具失败", str(e))
             return
         for t in tools:
+            self._tools_cache[t.name] = t
             item = QListWidgetItem(t.name)
             item.setData(Qt.ItemDataRole.UserRole, t.name)
             self.overview_tool_list.addItem(item)
-            self.overview_tool_combo.addItem(t.name)
         self._set_status(f"已获取 {len(tools)} 个工具")
 
     def _on_execute_clicked(self):
-        """执行工具调用"""
+        """调用工具执行"""
         if not self.connection.is_connected():
             QMessageBox.information(self, "提示", "请先连接服务器")
             return
-        tool_name = self.overview_tool_combo.currentText().strip()
+        tool_name = self._current_tool_name()
         if not tool_name:
-            QMessageBox.information(self, "提示", "请选择要调用的工具")
+            QMessageBox.information(self, "提示", "请先选择要调用的工具")
             return
 
         # 解析输入参数
@@ -397,3 +409,76 @@ class WorkspaceMain(QWidget):
             self._on_edit_clicked()
         elif action == act_delete:
             self._on_delete_clicked()
+            
+    # ---------- 工具选中后补充下拉描述 ----------
+    def _on_tool_selected(self, row: int):
+        """点击左侧工具列表时刷新描述和示例输入"""
+        item = self.overview_tool_list.item(row)
+        if item is None:
+            self.overview_desc.clear()
+            self.overview_input.clear()
+            return
+        name = item.data(Qt.ItemDataRole.UserRole)
+        self._show_tool_description(name)
+        self._prefill_input_example(name)
+
+    def _on_combo_changed(self, name: str):
+        """下拉框变化时，同步描述和示例输入"""
+        self._show_tool_description(name)
+        self._prefill_input_example(name)
+
+    def _show_tool_description(self, name: str):
+        """把工具描述显示到描述框"""
+        tool = getattr(self, "_tools_cache", {}).get(name)
+        if tool is None:
+            self.overview_desc.clear()
+            return
+        self.overview_desc.setPlainText(tool.description or "（无描述）")
+
+    def _prefill_input_example(self, name: str):
+        """根据 input_schema 生成一份示例输入，填入输入框"""
+        tool = getattr(self, "_tools_cache", {}).get(name)
+        if tool is None:
+            return
+        example = self._build_example_from_schema(tool.input_schema)
+        self.overview_input.setPlainText(safe_json_dumps(example))
+
+    def _current_tool_name(self) -> str:
+        item = self.overview_tool_list.currentItem()
+        if item is None:
+            return ""
+        return item.data(Qt.ItemDataRole.UserRole) or ""
+
+    def _on_fill_example_clicked(self):
+        name = self._current_tool_name()
+        if not name:
+            QMessageBox.information(self, "提示", "请先在左侧选择工具")
+            return
+        self._prefill_input_example(name)
+
+    @staticmethod
+    def _build_example_from_schema(schema: dict) -> dict:
+        """根据 JSON Schema 生成一份示例参数字典"""
+        if not isinstance(schema, dict):
+            return {}
+        properties = schema.get("properties", {})
+        result = {}
+        for key, prop in properties.items():
+            ptype = prop.get("type", "string")
+            if "default" in prop:
+                result[key] = prop["default"]
+            elif ptype == "string":
+                result[key] = ""
+            elif ptype == "integer":
+                result[key] = 0
+            elif ptype == "number":
+                result[key] = 0.0
+            elif ptype == "boolean":
+                result[key] = False
+            elif ptype == "array":
+                result[key] = []
+            elif ptype == "object":
+                result[key] = {}
+            else:
+                result[key] = ""
+        return result
