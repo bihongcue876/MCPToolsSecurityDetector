@@ -4,9 +4,10 @@ import os
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 from abc import ABC, abstractmethod
 from core.models import ServerConfig, ToolInfo
-from app_config import APP_NAME,VERSION
+from app_config import APP_NAME,VERSION,BASE_DIR
 from typing import Any
 
 # MCP 协议版本：客户端支持的全部版本，从新到旧排序（ISO 日期可字典序比较）
@@ -20,6 +21,21 @@ META_PROTOCOL_KEY = "io.modelcontextprotocol/protocolVersion"
 META_CAPABILITIES_KEY = "io.modelcontextprotocol/clientCapabilities"
 # 客户端标识信息
 CLIENT_INFO = {"name": APP_NAME, "version": VERSION}
+
+
+def resolve_project_path(path: str) -> str:
+    """把配置中的相对路径解析为基于项目根的绝对路径
+
+    服务器脚本 args 中常以相对路径书写（如相对项目根），
+    而子进程工作目录未必是项目根，统一基于 BASE_DIR 解析，
+    避免相对路径因工作目录不同而失效。
+    """
+    if not path:
+        return path
+    p = Path(path)
+    if p.is_absolute():
+        return path
+    return str(BASE_DIR / p)
 
 
 class MCPClient(ABC):
@@ -257,7 +273,7 @@ class StdioMCPClient(MCPClient):
             if not command:
                 self.last_error = f"无法解析命令：{self.config.command}"
                 return False
-            cmd = [command] + list(self.config.args)
+            cmd = [command] + [resolve_project_path(a) for a in self.config.args]
             self._process = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,

@@ -51,3 +51,12 @@ def ensure_record_files():
     toolcall_path.touch(exist_ok=True)
     detect_path.touch(exist_ok=True)
     return toolcall_path, detect_path
+
+def resolve_project_path(p: str) -> str:
+    """对于内置MCP服务器，把相对路径解析为基于项目根的绝对路径；绝对路径原样返回"""
+    if not p:
+        return p
+    path = Path(p)
+    if path.is_absolute():
+        return str(path)
+    return str(BASE_DIR / path)

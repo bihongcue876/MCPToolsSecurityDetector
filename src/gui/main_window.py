@@ -1,6 +1,8 @@
 # 主窗口类
-from PySide6.QtWidgets import QMainWindow, QStackedWidget, QStatusBar
-from PySide6.QtGui import QAction
+from PySide6.QtWidgets import (
+    QMainWindow, QStackedWidget, QStatusBar, QToolBar
+)
+from PySide6.QtGui import QAction, QActionGroup
 
 from gui.views.workspace_main import WorkspaceMain
 from gui.views.workspace_setting import WorkspaceSetting
@@ -17,7 +19,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("MCP 安全检测")
         self.resize(1000, 640)
 
-        # 核心管理器（整个应用只创建一次）
+        # 核心管理器
         self.config_manager = ConfigManager()
         self.connection = ConnectionManager()
         self.records = RecordsIO()
@@ -31,27 +33,28 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(WorkspaceRecord())
         self.setCentralWidget(self.stack)
 
-        # 菜单栏
-        self._build_menus()
+        # 顶部工具栏（代替菜单栏，点击即切换）
+        self._build_toolbar()
 
         # 状态栏
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage("就绪")
 
-    def _build_menus(self):
-        bar = self.menuBar()
+    def _build_toolbar(self):
+        tb = QToolBar("主工具栏")
+        tb.setMovable(False)
+        tb.setFloatable(False)
+        self.addToolBar(tb)
 
-        menu_start = bar.addMenu("开始")
-        act_server = QAction("MCP服务器", self)
-        act_server.triggered.connect(lambda: self.stack.setCurrentIndex(0))
-        menu_start.addAction(act_server)
+        # 用 QActionGroup 让当前页按钮保持按下态
+        group = QActionGroup(self)
+        group.setExclusive(True)
 
-        menu_settings = bar.addMenu("设置")
-        act_settings = QAction("全局设置", self)
-        act_settings.triggered.connect(lambda: self.stack.setCurrentIndex(1))
-        menu_settings.addAction(act_settings)
-
-        menu_logs = bar.addMenu("日志记录")
-        act_logs = QAction("查看日志", self)
-        act_logs.triggered.connect(lambda: self.stack.setCurrentIndex(2))
-        menu_logs.addAction(act_logs)
+        for idx, label in enumerate(["开始", "设置", "日志记录"]):
+            act = QAction(label, self)
+            act.setCheckable(True)
+            act.triggered.connect(lambda checked=False, i=idx: self.stack.setCurrentIndex(i))
+            group.addAction(act)
+            tb.addAction(act)
+            if idx == 0:
+                act.setChecked(True)

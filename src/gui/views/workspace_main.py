@@ -150,9 +150,9 @@ class WorkspaceMain(QWidget):
     def _build_tab_scan(self) -> QWidget:
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.addWidget(QLabel("测试 A："))
+        layout.addWidget(QLabel("测试A："))
         layout.addWidget(QTextEdit("描述与情况……"))
-        layout.addWidget(QLabel("测试 B："))
+        layout.addWidget(QLabel("测试B："))
         layout.addWidget(QTextEdit("描述与情况……"))
         layout.addWidget(QLabel("模拟攻击："))
         layout.addWidget(QTextEdit("配置……"))
