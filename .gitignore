@@ -1,4 +1,5 @@
-./data
+data
+!src/data
 src/.venv
 docs
 src/testlocal
