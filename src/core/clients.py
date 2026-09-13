@@ -187,6 +187,10 @@ class MCPClient(ABC):
         """调用指定工具"""
         result = self._rpc("tools/call", {"name": name, "arguments": args})
         return result
+    
+    def send_raw(self, message: dict) -> dict | None:
+        """发送任意JSON-RPC消息，用于检测探测"""
+        return self._send(message)
 
 
 class HttpMCPClient(MCPClient):
