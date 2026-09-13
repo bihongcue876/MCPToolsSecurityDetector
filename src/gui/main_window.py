@@ -6,6 +6,10 @@ from gui.views.workspace_main import WorkspaceMain
 from gui.views.workspace_setting import WorkspaceSetting
 from gui.views.workspace_record import WorkspaceRecord
 
+from core.connection import ConnectionManager
+from data.config_manager import ConfigManager
+from data.records_io import RecordsIO
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -13,9 +17,16 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("MCP 安全检测")
         self.resize(1000, 640)
 
+        # 核心管理器（整个应用只创建一次）
+        self.config_manager = ConfigManager()
+        self.connection = ConnectionManager()
+        self.records = RecordsIO()
+
         # 中央堆叠区
         self.stack = QStackedWidget()
-        self.stack.addWidget(WorkspaceMain())
+        self.stack.addWidget(WorkspaceMain(
+            self.config_manager, self.connection, self.records
+        ))
         self.stack.addWidget(WorkspaceSetting())
         self.stack.addWidget(WorkspaceRecord())
         self.setCentralWidget(self.stack)

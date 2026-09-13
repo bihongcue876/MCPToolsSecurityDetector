@@ -34,7 +34,7 @@ class ConnectionManager:
                 self._current_server_id = config._id
                 self._cached_tools = []
                 return True, ""
-            return False, "连接失败：初始化握手未成功"
+            return False, client.last_error or "连接失败：初始化握手未成功"
         except Exception as e:
             return False, f"连接异常：{e}"
 
