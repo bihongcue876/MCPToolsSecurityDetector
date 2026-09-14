@@ -4,9 +4,12 @@ from PySide6.QtWidgets import (
     QWidget, QSplitter, QListWidget, QListWidgetItem,
     QPushButton, QVBoxLayout, QHBoxLayout,
     QTabWidget, QLabel, QLineEdit, QTextEdit,
-    QComboBox, QFormLayout, QMessageBox, QDialog, QMenu, QApplication, QMainWindow
+    QComboBox, QFormLayout, QMessageBox, QDialog, QMenu, QApplication, QMainWindow,
+    QGroupBox, QCheckBox, QTableWidget, QTableWidgetItem,
+    QHeaderView, QScrollArea
 )
 from PySide6.QtCore import Qt
+from datetime import datetime
 
 from core.connection import ConnectionManager
 from data.config_manager import ConfigManager
@@ -14,7 +17,10 @@ from data.records_io import RecordsIO
 from core.utils import safe_json_dumps, safe_json_loads
 from core.models import ToolCallRecord
 from gui.dialogs.add_server_dialog import AddServerDialog
+from detection import engine
+from gui.dialogs.detection_summary_dialog import DetectionSummaryDialog
 
+STATUS_CN = {"pass": "通过", "warn": "警告", "fail": "失败", "skip": "跳过"}
 
 class WorkspaceMain(QWidget):
     """工作区一：MCP 服务器管理"""
@@ -28,6 +34,7 @@ class WorkspaceMain(QWidget):
         self.records = records
         self._setup_ui()
         self.refresh_server_list()
+        self._results_cache: list = []
 
     def _setup_ui(self):
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -146,21 +153,68 @@ class WorkspaceMain(QWidget):
         layout.addLayout(right, 2)
         return w
 
-    # ---------- 鉴别子页 ----------
+    # ---------- 检测子页 ----------
     def _build_tab_scan(self) -> QWidget:
         w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.addWidget(QLabel("测试A："))
-        layout.addWidget(QTextEdit("描述与情况……"))
-        layout.addWidget(QLabel("测试B："))
-        layout.addWidget(QTextEdit("描述与情况……"))
-        layout.addWidget(QLabel("模拟攻击："))
-        layout.addWidget(QTextEdit("配置……"))
-        btn_row = QHBoxLayout()
-        btn_row.addWidget(QPushButton("测试（含还原）"))
-        btn_row.addStretch()
-        layout.addLayout(btn_row)
+        outer = QVBoxLayout(w)
+
+        # 顶部：全部检测 + 状态
+        top = QHBoxLayout()
+        self.btn_scan_all = QPushButton("全部检测")
+        self.btn_scan_all.clicked.connect(self._on_scan_all_clicked)
+        self.scan_status = QLabel("未检测")
+        top.addWidget(self.btn_scan_all)
+        top.addWidget(self.scan_status)
+        top.addStretch()
+        outer.addLayout(top)
+
+        # 中部：滚动区
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        inner = QWidget()
+        inner_layout = QVBoxLayout(inner)
+        self.group_a = self._build_group_a()
+        inner_layout.addWidget(self.group_a)
+        inner_layout.addStretch()
+        scroll.setWidget(inner)
+        outer.addWidget(scroll, 1)
+
+        # 底部：共享详情框
+        outer.addWidget(QLabel("详情："))
+        self.scan_detail = QTextEdit()
+        self.scan_detail.setReadOnly(True)
+        self.scan_detail.setMaximumHeight(140)
+        outer.addWidget(self.scan_detail)
+
         return w
+
+    def _build_group_a(self) -> QGroupBox:
+        box = QGroupBox("A组：传输与鉴权")
+        layout = QVBoxLayout(box)
+
+        row = QHBoxLayout()
+        self.cb_a1 = QCheckBox("A1 TLS/明文传输")
+        self.cb_a2 = QCheckBox("A2 匿名访问")
+        self.cb_a3 = QCheckBox("A3 硬编码凭证")
+        self.cb_a4 = QCheckBox("A4 协议握手")
+        for cb in (self.cb_a1, self.cb_a2, self.cb_a3, self.cb_a4):
+            cb.setChecked(True)
+            row.addWidget(cb)
+        row.addStretch()
+        btn = QPushButton("运行A组")
+        btn.clicked.connect(self._on_run_group_a)
+        row.addWidget(btn)
+        layout.addLayout(row)
+
+        self.table_a = QTableWidget(0, 4)
+        self.table_a.setHorizontalHeaderLabels(["编号", "名称", "状态", "证据摘要"])
+        self.table_a.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.table_a.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers) # 禁止编辑
+        self.table_a.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows) # 整行选中
+        self.table_a.setSelectionMode(QTableWidget.SelectionMode.SingleSelection) # 单选
+        self.table_a.itemSelectionChanged.connect(self._on_table_a_selected)
+        layout.addWidget(self.table_a)
+        return box
 
     # ---------- 服务器列表 ----------
     def refresh_server_list(self):
@@ -199,6 +253,23 @@ class WorkspaceMain(QWidget):
             self._clear_config_form()
             return
         self._fill_config_form(cfg)
+        self._load_latest_detection(cfg._id)
+        
+    def _load_latest_detection(self, server_id: str):
+        """从记录中读取该服务器最近一次检测，回填检测页"""
+        self.table_a.setRowCount(0)
+        self.scan_detail.clear()
+        self._results_cache = []
+        self.scan_status.setText("未检测")
+        try:
+            run = self.records.get_latest_detection_run(server_id)
+        except Exception:
+            return
+        if run is None or not run.results:
+            return
+        self._results_cache = list(run.results)
+        self._fill_table(self.table_a, run.results)
+        self.scan_status.setText(f"上次检测：{run.run_time}")
 
     def _fill_config_form(self, cfg):
         self.config_name.setText(cfg.name)
@@ -259,6 +330,7 @@ class WorkspaceMain(QWidget):
         cfg.url = self.config_url.text().strip()
         cfg.command = self.config_command.text().strip()
         cfg.args = self.config_args.text().split()
+        cfg.update_at = datetime.now().isoformat()
         self.config_manager.update(server_id, cfg)
         self.refresh_server_list()
         self._set_status("已保存配置")
@@ -482,3 +554,88 @@ class WorkspaceMain(QWidget):
             else:
                 result[key] = ""
         return result
+    
+    # ---------- A组检测 ----------
+    def _on_run_group_a(self):
+        checks = []
+        if self.cb_a1.isChecked(): checks.append("A1")
+        if self.cb_a2.isChecked(): checks.append("A2")
+        if self.cb_a3.isChecked(): checks.append("A3")
+        if self.cb_a4.isChecked(): checks.append("A4")
+        self._run_checks(checks, "A组")
+
+    def _on_scan_all_clicked(self):
+        checks = []
+        if self.cb_a1.isChecked(): checks.append("A1")
+        if self.cb_a2.isChecked(): checks.append("A2")
+        if self.cb_a3.isChecked(): checks.append("A3")
+        if self.cb_a4.isChecked(): checks.append("A4")
+        self._run_checks(checks, "全部")
+
+    def _run_checks(self, checks: list, label: str):
+        if not checks:
+            QMessageBox.information(self, "提示", "请至少选择一个检测项")
+            return
+        server_id = self._current_server_id()
+        if not server_id:
+            QMessageBox.information(self, "提示", "请先选择一个服务器")
+            return
+        cfg = self.config_manager.get_by_id(server_id)
+        if cfg is None:
+            return
+
+        client = self.connection.client if self.connection.is_connected() else None
+
+        self.scan_status.setText(f"{label}检测中...")
+        self.btn_scan_all.setEnabled(False)
+        QApplication.processEvents()
+        try:
+            results = engine.run_and_record(checks, cfg, client, self.records)
+        except Exception as e:
+            self.scan_status.setText("检测失败")
+            self.btn_scan_all.setEnabled(True)
+            QMessageBox.warning(self, "检测失败", str(e))
+            return
+        finally:
+            self.btn_scan_all.setEnabled(True)
+
+        self._results_cache = results
+        self._fill_table(self.table_a, results)
+        pass_n = sum(1 for r in results if r.status == "pass")
+        warn_n = sum(1 for r in results if r.status == "warn")
+        fail_n = sum(1 for r in results if r.status == "fail")
+        self.scan_status.setText(
+            f"{label}完成：通过{pass_n}，警告{warn_n}，失败{fail_n}"
+        )
+        DetectionSummaryDialog(results, self).exec()
+
+    def _fill_table(self, table: QTableWidget, results: list):
+        table.setRowCount(0)
+        for r in results:
+            row = table.rowCount()
+            table.insertRow(row)
+            table.setItem(row, 0, QTableWidgetItem(r.item_id))
+            table.setItem(row, 1, QTableWidgetItem(r.item_name))
+            table.setItem(row, 2, QTableWidgetItem(STATUS_CN.get(r.status, str(r.status))))
+            brief = r.evidence[:60].replace("\n", " ")
+            table.setItem(row, 3, QTableWidgetItem(brief))
+
+    def _on_table_a_selected(self):
+        self._show_result_detail(self.table_a)
+
+    def _show_result_detail(self, table: QTableWidget):
+        rows = table.selectionModel().selectedRows() if table.selectionModel() else []
+        if not rows:
+            return
+        idx = rows[0].row()
+        if idx < 0 or idx >= len(getattr(self, "_results_cache", [])):
+            return
+        r = self._results_cache[idx]
+        text = (
+            f"编号：{r.item_id}\n"
+            f"名称：{r.item_name}\n"
+            f"状态：{STATUS_CN.get(r.status, str(r.status))}\n\n"
+            f"证据：\n{r.evidence}\n\n"
+            f"建议：\n{r.suggestion}"
+        )
+        self.scan_detail.setPlainText(text)

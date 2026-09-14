@@ -70,6 +70,20 @@ class RecordsIO:
 
     def read_attacks(self, month: str | None = None) -> list[ToolCallRecord]:
         return [ToolCallRecord(**d) for d in self._read_lines("attack", month)]
+    
+    def get_latest_detection_run(self, server_id: str) -> DetectionRun | None:
+        """读取某服务器最近一次检测记录（从最新月份倒序查找）"""
+        months = self.list_months("detection")
+        for m in reversed(months):
+            records = self._read_lines("detection", m)
+            for d in reversed(records):
+                if d.get("server_id") != server_id:
+                    continue
+                results_data = d.pop("results", [])
+                run = DetectionRun(**d)
+                run.results = [DetectionResult(**r) for r in results_data]
+                return run
+        return None
 
     # ---------- 管理 ----------
     def list_months(self, prefix: str) -> list[str]:

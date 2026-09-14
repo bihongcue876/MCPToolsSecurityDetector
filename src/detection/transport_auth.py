@@ -240,8 +240,7 @@ def _detect_stack_trace(text: str) -> list[str]:
     return hits
 
 def _probe_error_leakage(client: MCPClient) -> tuple[bool, str]:
-    """向客户端发送两条错误请求，检查错误响应是否泄露内部信息。
-    返回(是否泄露, 证据文本)"""
+    """向客户端发送两条错误请求，检查错误响应是否泄露内部信息。返回(是否泄露, 证据文本)"""
     probes = [
         {"jsonrpc": "2.0", "id": 9001, "method": "__nonexistent_method__"},
         {"jsonrpc": "2.0", "id": 9002, "method": "tools/call", "params": {}},
