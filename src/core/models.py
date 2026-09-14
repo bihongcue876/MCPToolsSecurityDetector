@@ -50,23 +50,32 @@ class AttackPayload:
     description: str # 用途说明
     is_builtin: bool = False # 是否为固有数据（是则不予删除）
 
-# 工具使用记录
+# 记录基类：三类记录共用的通用字段
 @dataclass
-class ToolCallRecord:
-    id: int = 0 # 记录编号，插入前为0
-    server_id: str = ""
+class BaseRecord:
+    id: str = "" # 唯一ID，写入时由 RecordsIO 生成（时间戳+序号）
+    server_id: str = "" # 关联服务器ID
+    server_name: str = "" # 冗余服务器名，服务器被删除后记录仍可追溯
+    timestamp: str = "" # ISO 时间戳
+
+@dataclass
+class ToolCallRecord(BaseRecord):
     tool_name: str = ""
     args_json: str = "" # 工具调用参数
     response_json: str = "" # 工具调用结论
-    is_attack: bool = False # 是否为攻击模拟，默认非
-    payload_id: str = "" # 若为攻击，记录载荷ID
-    timestamp: str = ""
-    
+    is_attack: bool = False # 是否标记为攻击场景（普通调用恒为 False）
+
+# 攻击模拟记录（与手动调用分离，避免 is_attack 标志二义）
+@dataclass
+class AttackRecord(BaseRecord):
+    tool_name: str = ""
+    payload_id: str = "" # 攻击载荷ID
+    payload_content: str = "" # 载荷内容快照，payload 被删除后仍可回看
+    args_json: str = "" # 最终参数字符串
+    response_json: str = "" # 响应字符串
+
 # 检测记录
 @dataclass
-class DetectionRun:
-    id: int = 0
-    server_id: str = ""
-    server_name: str = ""
-    run_time: str = ""
+class DetectionRun(BaseRecord):
+    run_time: str = "" # 运行时间
     results: list = field(default_factory=list)  # list[DetectionResult]

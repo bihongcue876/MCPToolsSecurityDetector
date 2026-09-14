@@ -175,6 +175,8 @@ class WorkspaceMain(QWidget):
         inner_layout = QVBoxLayout(inner)
         self.group_a = self._build_group_a()
         inner_layout.addWidget(self.group_a)
+        self.group_b = self._build_group_b()
+        inner_layout.addWidget(self.group_b)
         inner_layout.addStretch()
         scroll.setWidget(inner)
         outer.addWidget(scroll, 1)
@@ -188,6 +190,7 @@ class WorkspaceMain(QWidget):
 
         return w
 
+# ---------- groups ----------
     def _build_group_a(self) -> QGroupBox:
         box = QGroupBox("A组：传输与鉴权")
         layout = QVBoxLayout(box)
@@ -214,6 +217,32 @@ class WorkspaceMain(QWidget):
         self.table_a.setSelectionMode(QTableWidget.SelectionMode.SingleSelection) # 单选
         self.table_a.itemSelectionChanged.connect(self._on_table_a_selected)
         layout.addWidget(self.table_a)
+        return box
+    
+    def _build_group_b(self) -> QGroupBox:
+        box = QGroupBox("B组：工具与注入风险")
+        layout = QVBoxLayout(box)
+        row = QHBoxLayout()
+        self.cb_b1 = QCheckBox("B1 工具元数据提示注入")
+        self.cb_b2 = QCheckBox("B2 工具结果响应注入")
+        self.cb_b3 = QCheckBox("B3 参数Schema约束不足")
+        self.cb_b4 = QCheckBox("B4 危险能力声明不一致")
+        for cb in (self.cb_b1, self.cb_b2, self.cb_b3, self.cb_b4):
+            cb.setChecked(True)
+            row.addWidget(cb)
+        row.addStretch()
+        btn = QPushButton("运行B组")
+        btn.clicked.connect(self._on_run_group_b)
+        row.addWidget(btn)
+        layout.addLayout(row)
+        self.table_b = QTableWidget(0, 4)
+        self.table_b.setHorizontalHeaderLabels(["编号", "名称", "状态", "证据摘要"])
+        self.table_b.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.table_b.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table_b.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table_b.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table_b.itemSelectionChanged.connect(self._on_table_b_selected)
+        layout.addWidget(self.table_b)
         return box
 
     # ---------- 服务器列表 ----------
@@ -258,6 +287,7 @@ class WorkspaceMain(QWidget):
     def _load_latest_detection(self, server_id: str):
         """从记录中读取该服务器最近一次检测，回填检测页"""
         self.table_a.setRowCount(0)
+        self.table_b.setRowCount(0)
         self.scan_detail.clear()
         self._results_cache = []
         self.scan_status.setText("未检测")
@@ -268,7 +298,7 @@ class WorkspaceMain(QWidget):
         if run is None or not run.results:
             return
         self._results_cache = list(run.results)
-        self._fill_table(self.table_a, run.results)
+        self._fill_tables(run.results)
         self.scan_status.setText(f"上次检测：{run.run_time}")
 
     def _fill_config_form(self, cfg):
@@ -563,6 +593,15 @@ class WorkspaceMain(QWidget):
         if self.cb_a3.isChecked(): checks.append("A3")
         if self.cb_a4.isChecked(): checks.append("A4")
         self._run_checks(checks, "A组")
+    
+    # ---------- B组检测 ----------
+    def _on_run_group_b(self):
+        checks = []
+        if self.cb_b1.isChecked(): checks.append("B1")
+        if self.cb_b2.isChecked(): checks.append("B2")
+        if self.cb_b3.isChecked(): checks.append("B3")
+        if self.cb_b4.isChecked(): checks.append("B4")
+        self._run_checks(checks, "B组")
 
     def _on_scan_all_clicked(self):
         checks = []
@@ -570,6 +609,10 @@ class WorkspaceMain(QWidget):
         if self.cb_a2.isChecked(): checks.append("A2")
         if self.cb_a3.isChecked(): checks.append("A3")
         if self.cb_a4.isChecked(): checks.append("A4")
+        if self.cb_b1.isChecked(): checks.append("B1")
+        if self.cb_b2.isChecked(): checks.append("B2")
+        if self.cb_b3.isChecked(): checks.append("B3")
+        if self.cb_b4.isChecked(): checks.append("B4")
         self._run_checks(checks, "全部")
 
     def _run_checks(self, checks: list, label: str):
@@ -583,9 +626,7 @@ class WorkspaceMain(QWidget):
         cfg = self.config_manager.get_by_id(server_id)
         if cfg is None:
             return
-
         client = self.connection.client if self.connection.is_connected() else None
-
         self.scan_status.setText(f"{label}检测中...")
         self.btn_scan_all.setEnabled(False)
         QApplication.processEvents()
@@ -598,18 +639,22 @@ class WorkspaceMain(QWidget):
             return
         finally:
             self.btn_scan_all.setEnabled(True)
-
         self._results_cache = results
-        self._fill_table(self.table_a, results)
+        self._fill_tables(results)
         pass_n = sum(1 for r in results if r.status == "pass")
         warn_n = sum(1 for r in results if r.status == "warn")
         fail_n = sum(1 for r in results if r.status == "fail")
-        self.scan_status.setText(
-            f"{label}完成：通过{pass_n}，警告{warn_n}，失败{fail_n}"
-        )
+        self.scan_status.setText(f"{label}完成：通过{pass_n}，警告{warn_n}，失败{fail_n}")
         DetectionSummaryDialog(results, self).exec()
 
-    def _fill_table(self, table: QTableWidget, results: list):
+    def _fill_tables(self, results: list):
+        """按模块分别填入A表和B表"""
+        a_results = [r for r in results if r.module == "A"]
+        b_results = [r for r in results if r.module == "B"]
+        self._fill_one_table(self.table_a, a_results)
+        self._fill_one_table(self.table_b, b_results)
+
+    def _fill_one_table(self, table: QTableWidget, results: list):
         table.setRowCount(0)
         for r in results:
             row = table.rowCount()
@@ -623,19 +668,25 @@ class WorkspaceMain(QWidget):
     def _on_table_a_selected(self):
         self._show_result_detail(self.table_a)
 
+    def _on_table_b_selected(self):
+        self._show_result_detail(self.table_b)
+
     def _show_result_detail(self, table: QTableWidget):
         rows = table.selectionModel().selectedRows() if table.selectionModel() else []
         if not rows:
             return
         idx = rows[0].row()
-        if idx < 0 or idx >= len(getattr(self, "_results_cache", [])):
+        item = table.item(idx, 0)
+        if item is None:
             return
-        r = self._results_cache[idx]
-        text = (
-            f"编号：{r.item_id}\n"
-            f"名称：{r.item_name}\n"
-            f"状态：{STATUS_CN.get(r.status, str(r.status))}\n\n"
-            f"证据：\n{r.evidence}\n\n"
-            f"建议：\n{r.suggestion}"
-        )
+        item_id = item.text()
+        # 从缓存中按编号查找，避免A/B两组行号互相干扰
+        target = None
+        for r in getattr(self, "_results_cache", []):
+            if r.item_id == item_id:
+                target = r
+                break
+        if target is None:
+            return
+        text = (f"编号：{target.item_id}\n名称：{target.item_name}\n状态：{STATUS_CN.get(target.status, target.status)}\n\n证据：\n{target.evidence}\n\n建议：\n{target.suggestion}")
         self.scan_detail.setPlainText(text)

@@ -189,7 +189,15 @@ class MCPClient(ABC):
         return result
     
     def send_raw(self, message: dict) -> dict | None:
-        """发送任意JSON-RPC消息，用于检测探测"""
+        """发送任意JSON-RPC消息，用于检测探测；现代协议下自动补充 _meta 信封。"""
+        if self._is_modern():
+            params = message.setdefault("params", {})
+            if not isinstance(params, dict):
+                params = {}
+                message["params"] = params
+            meta = params.setdefault("_meta", {})
+            meta.setdefault(META_PROTOCOL_KEY, self._protocol_version)
+            meta.setdefault(META_CAPABILITIES_KEY, {})
         return self._send(message)
 
 
@@ -199,6 +207,7 @@ class HttpMCPClient(MCPClient):
     def __init__(self, config: ServerConfig):
         super().__init__(config)
         self._http = None  # 延迟创建 httpx.Client
+        self._session_id = ""  # Streamable HTTP 会话 ID，初始化后必须随后续请求透传
 
     def _get_http(self):
         """懒加载 httpx 客户端"""
@@ -208,12 +217,14 @@ class HttpMCPClient(MCPClient):
         return self._http
 
     def _build_headers(self) -> dict:
-        """组装请求头，包含认证信息"""
+        """组装请求头，包含认证信息与会话 ID"""
         headers = dict(self.config.headers)
         if self.config.auth_type == "bearer" and self.config.auth_value:
             headers["Authorization"] = f"Bearer {self.config.auth_value}"
         elif self.config.auth_type == "api_key" and self.config.auth_value:
             headers["X-API-Key"] = self.config.auth_value
+        if self._session_id:
+            headers["Mcp-Session-Id"] = self._session_id
         headers.setdefault("Content-Type", "application/json")
         # Streamable HTTP 可能返回 SSE 流或 JSON
         headers.setdefault("Accept", "application/json, text/event-stream")
@@ -223,7 +234,13 @@ class HttpMCPClient(MCPClient):
         http = self._get_http()
         headers = self._build_headers()
         resp = http.post(self.config.url, json=message, headers=headers)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            # HTTP 错误（如会话未建立/协议不支持）走 RuntimeError，供协商回退捕获
+            raise RuntimeError(f"MCP HTTP错误[{resp.status_code}]: {resp.text[:200]}")
+        # 保存会话 ID，后续请求必须携带
+        sid = resp.headers.get("mcp-session-id")
+        if sid:
+            self._session_id = sid
         # 通知请求无需解析响应
         if "id" not in message:
             return None
