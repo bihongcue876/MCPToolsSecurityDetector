@@ -6,9 +6,10 @@ from PySide6.QtWidgets import (
     QTabWidget, QLabel, QLineEdit, QTextEdit,
     QComboBox, QFormLayout, QMessageBox, QDialog, QMenu, QApplication, QMainWindow,
     QGroupBox, QCheckBox, QTableWidget, QTableWidgetItem,
-    QHeaderView, QScrollArea
+    QHeaderView, QScrollArea, QStyledItemDelegate, QStyleOptionViewItem
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSize, QTimer
+from PySide6.QtGui import QTextDocument
 from datetime import datetime
 
 from core.connection import ConnectionManager
@@ -21,6 +22,42 @@ from detection import engine
 from gui.dialogs.detection_summary_dialog import DetectionSummaryDialog
 
 STATUS_CN = {"pass": "通过", "warn": "警告", "fail": "失败", "skip": "跳过"}
+
+
+class WrapCellDelegate(QStyledItemDelegate):
+    """单元格文字自动换行，完整显示而不截断"""
+
+    def _metrics(self, option, text: str, width: int):
+        doc = QTextDocument()
+        doc.setDefaultFont(option.font)
+        doc.setPlainText(text)
+        doc.setTextWidth(max(width, 20))
+        return doc
+
+    def paint(self, painter, option, index):
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        text = opt.text or ""
+        if not text:
+            super().paint(painter, option, index)
+            return
+        doc = self._metrics(opt, text, opt.rect.width() - 8)
+        painter.save()
+        painter.translate(opt.rect.left() + 4, opt.rect.top() + 4)
+        doc.drawContents(painter)
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        base = super().sizeHint(option, index)
+        text = index.data(Qt.ItemDataRole.DisplayRole)
+        if not text:
+            return base
+        # 按单元格实际宽度换算换行所需高度，最小不低于默认行高
+        width = option.rect.width() - 8 if option.rect.width() > 40 else 212
+        doc = self._metrics(option, str(text), width)
+        h = int(doc.size().height()) + 8
+        return QSize(base.width(), max(base.height(), h))
+
 
 class WorkspaceMain(QWidget):
     """工作区一：MCP 服务器管理"""
@@ -158,6 +195,12 @@ class WorkspaceMain(QWidget):
         w = QWidget()
         outer = QVBoxLayout(w)
 
+        # 中部：滚动区（按钮 + 两个表格区域整体上下滚动）
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        inner = QWidget()
+        inner_layout = QVBoxLayout(inner)
+
         # 顶部：全部检测 + 状态
         top = QHBoxLayout()
         self.btn_scan_all = QPushButton("全部检测")
@@ -166,13 +209,8 @@ class WorkspaceMain(QWidget):
         top.addWidget(self.btn_scan_all)
         top.addWidget(self.scan_status)
         top.addStretch()
-        outer.addLayout(top)
+        inner_layout.addLayout(top)
 
-        # 中部：滚动区
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        inner = QWidget()
-        inner_layout = QVBoxLayout(inner)
         self.group_a = self._build_group_a()
         inner_layout.addWidget(self.group_a)
         self.group_b = self._build_group_b()
@@ -211,11 +249,16 @@ class WorkspaceMain(QWidget):
 
         self.table_a = QTableWidget(0, 4)
         self.table_a.setHorizontalHeaderLabels(["编号", "名称", "状态", "证据摘要"])
-        self.table_a.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.table_a.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table_a.horizontalHeader().setDefaultSectionSize(150)
+        self.table_a.setItemDelegate(WrapCellDelegate(self.table_a))
+        self.table_a.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table_a.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.table_a.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers) # 禁止编辑
         self.table_a.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows) # 整行选中
         self.table_a.setSelectionMode(QTableWidget.SelectionMode.SingleSelection) # 单选
         self.table_a.itemSelectionChanged.connect(self._on_table_a_selected)
+        self.table_a.horizontalHeader().sectionResized.connect(self._refit_tables)
         layout.addWidget(self.table_a)
         return box
     
@@ -237,11 +280,16 @@ class WorkspaceMain(QWidget):
         layout.addLayout(row)
         self.table_b = QTableWidget(0, 4)
         self.table_b.setHorizontalHeaderLabels(["编号", "名称", "状态", "证据摘要"])
-        self.table_b.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.table_b.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table_b.horizontalHeader().setDefaultSectionSize(150)
+        self.table_b.setItemDelegate(WrapCellDelegate(self.table_b))
+        self.table_b.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table_b.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.table_b.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table_b.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table_b.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table_b.itemSelectionChanged.connect(self._on_table_b_selected)
+        self.table_b.horizontalHeader().sectionResized.connect(self._refit_tables)
         layout.addWidget(self.table_b)
         return box
 
@@ -291,6 +339,7 @@ class WorkspaceMain(QWidget):
         self.scan_detail.clear()
         self._results_cache = []
         self.scan_status.setText("未检测")
+        self._refit_tables()
         try:
             run = self.records.get_latest_detection_run(server_id)
         except Exception:
@@ -476,8 +525,10 @@ class WorkspaceMain(QWidget):
         self.overview_output.setPlainText(safe_json_dumps(result))
 
         # 写入记录
+        cfg_now = self.config_manager.get_by_id(self._current_server_id())
         record = ToolCallRecord(
             server_id=self._current_server_id(),
+            server_name=cfg_now.name if cfg_now else "",
             tool_name=tool_name,
             args_json=safe_json_dumps(args),
             response_json=safe_json_dumps(result),
@@ -662,8 +713,25 @@ class WorkspaceMain(QWidget):
             table.setItem(row, 0, QTableWidgetItem(r.item_id))
             table.setItem(row, 1, QTableWidgetItem(r.item_name))
             table.setItem(row, 2, QTableWidgetItem(STATUS_CN.get(r.status, str(r.status))))
-            brief = r.evidence[:60].replace("\n", " ")
-            table.setItem(row, 3, QTableWidgetItem(brief))
+            table.setItem(row, 3, QTableWidgetItem(r.evidence))
+        self._fit_table_height(table)
+
+    def _fit_table_height(self, table: QTableWidget):
+        """让表格高度恰好容纳全部行，交由外层滚动区整体滚动
+
+        表格内部不再出现滚动条，所有行完整展开；外层 QScrollArea 负责滚动。
+        """
+        table.resizeRowsToContents()
+        header_h = table.horizontalHeader().height() or 30
+        total = header_h + 2 * table.frameWidth()
+        for r in range(table.rowCount()):
+            total += table.rowHeight(r)
+        table.setFixedHeight(total)
+
+    def _refit_tables(self, *args):
+        """列宽变化（窗口缩放/拉伸）时重算两个表格的行高"""
+        for t in (self.table_a, self.table_b):
+            self._fit_table_height(t)
 
     def _on_table_a_selected(self):
         self._show_result_detail(self.table_a)

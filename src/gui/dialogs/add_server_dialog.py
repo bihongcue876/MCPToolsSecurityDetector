@@ -111,7 +111,7 @@ class AddServerDialog(QDialog):
                 update_at=now,
             )
         else:
-            # 新增模式：生成新 ID
+            # 新增模式：生成新 ID，update_at 留空（尚未被修改过）
             return ServerConfig(
                 _id=uuid.uuid4().hex,
                 name=name,
@@ -121,5 +121,5 @@ class AddServerDialog(QDialog):
                 url=self.url_edit.text().strip(),
                 timeout=self.timeout_spin.value(),
                 create_at=now,
-                update_at=now,
+                update_at="",
             )

@@ -4,7 +4,10 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
+from urllib.parse import urljoin
 from abc import ABC, abstractmethod
 from core.models import ServerConfig, ToolInfo
 from app_config import APP_NAME,VERSION,BASE_DIR
@@ -407,20 +410,129 @@ class StdioMCPClient(MCPClient):
 
 
 class SseMCPClient(MCPClient):
-    """基于 SSE 的客户端（骨架，具体实现后续迭代）"""
+    """基于 SSE 的客户端：GET 建立事件流，POST 发送请求，响应经事件流返回"""
 
     def __init__(self, config: ServerConfig):
         super().__init__(config)
         self._http = None
-        self._post_endpoint = ""  # SSE 事件流返回的 POST 端点
+        self._msg_endpoint = ""  # endpoint 事件给出的消息POST端点
+        self._reader = None      # 后台事件流读取线程
+        self._stop = threading.Event()
+        self._endpoint_ready = threading.Event()
+        self._pending: dict[int, dict] = {}
+        self._pending_event = threading.Event()
 
-    def _send(self, message: dict) -> dict | None:
-        # 尚未实现完整 SSE 逻辑
-        raise NotImplementedError("SSE客户端尚未实现，请使用HTTP或STDIO模式")
+    def _get_http(self):
+        if self._http is None:
+            import httpx
+            self._http = httpx.Client(timeout=self.config.timeout)
+        return self._http
+
+    def _build_headers(self) -> dict:
+        headers = dict(self.config.headers)
+        if self.config.auth_type == "bearer" and self.config.auth_value:
+            headers["Authorization"] = f"Bearer {self.config.auth_value}"
+        elif self.config.auth_type == "api_key" and self.config.auth_value:
+            headers["X-API-Key"] = self.config.auth_value
+        headers.setdefault("Accept", "text/event-stream")
+        return headers
 
     def connect(self) -> bool:
-        # 暂时直接返回失败
-        return False
+        self.last_error = ""
+        self._stop.clear()
+        self._endpoint_ready.clear()
+        self._pending.clear()
+        self._msg_endpoint = ""
+        self._reader = threading.Thread(target=self._read_loop, daemon=True)
+        self._reader.start()
+        # 等待 endpoint 事件就绪，给出消息端点
+        if not self._endpoint_ready.wait(timeout=self.config.timeout):
+            self._abort()
+            self.last_error = "SSE 连接失败：未获取到消息端点"
+            return False
+        return super().connect()
+
+    def _read_loop(self):
+        """后台读取 SSE 事件流，解析 endpoint 与 message 事件"""
+        http = self._get_http()
+        try:
+            with http.stream("GET", self.config.url, headers=self._build_headers()) as resp:
+                resp.raise_for_status()
+                event = ""
+                data = ""
+                for line in resp.iter_lines():
+                    if self._stop.is_set():
+                        break
+                    if line == "":
+                        self._handle_event(event, data)
+                        event, data = "", ""
+                    elif line.startswith("event:"):
+                        event = line[len("event:"):].strip()
+                    elif line.startswith("data:"):
+                        data = line[len("data:"):].strip()
+        except Exception as e:
+            self.last_error = f"SSE 事件流中断：{e}"
+        self._stop.set()
+        self._pending_event.set()
+
+    def _handle_event(self, event: str, data: str):
+        if event == "endpoint" and data:
+            self._msg_endpoint = urljoin(self.config.url, data)
+            self._endpoint_ready.set()
+        elif event == "message" and data:
+            try:
+                msg = json.loads(data)
+            except json.JSONDecodeError:
+                return
+            rid = msg.get("id") if isinstance(msg, dict) else None
+            if rid is not None:
+                self._pending[rid] = msg
+                self._pending_event.set()
+
+    def _send(self, message: dict) -> dict | None:
+        if not self._msg_endpoint:
+            raise RuntimeError("SSE 未就绪：缺少消息端点")
+        http = self._get_http()
+        rid = message.get("id")
+        resp = http.post(self._msg_endpoint, json=message, headers=self._build_headers())
+        if resp.status_code >= 400:
+            raise RuntimeError(f"MCP SSE 错误[{resp.status_code}]: {resp.text[:200]}")
+        # 通知无需响应
+        if "id" not in message:
+            return None
+        # 优先使用 POST 直接返回的 JSON-RPC 响应
+        ct = resp.headers.get("content-type", "")
+        if "application/json" in ct and rid is not None:
+            try:
+                body = resp.json()
+                if isinstance(body, dict) and body.get("id") == rid:
+                    return body
+            except Exception:
+                pass
+        # 否则等待同 id 的响应从事件流返回
+        while not self._stop.is_set():
+            if rid in self._pending:
+                return self._pending.pop(rid)
+            self._pending_event.wait(timeout=0.5)
+            self._pending_event.clear()
+        raise RuntimeError(f"SSE 请求未获得响应：{self.last_error}")
+
+    def disconnect(self):
+        super().disconnect()
+        self._abort()
+
+    def _abort(self):
+        """停止读取线程并清理HTTP资源（幂等）"""
+        self._stop.set()
+        self._pending_event.set()
+        if self._http is not None:
+            try:
+                self._http.close()
+            except Exception:
+                pass
+            self._http = None
+        self._msg_endpoint = ""
+        self._pending.clear()
 
 # 各个Client承接的MCP服务器区别为：发送与连接的形式不同。
 

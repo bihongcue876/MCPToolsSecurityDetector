@@ -30,7 +30,7 @@ class MainWindow(QMainWindow):
             self.config_manager, self.connection, self.records
         ))
         self.stack.addWidget(WorkspaceSetting())
-        self.stack.addWidget(WorkspaceRecord())
+        self.stack.addWidget(WorkspaceRecord(self.records))
         self.setCentralWidget(self.stack)
 
         # 顶部工具栏（代替菜单栏，点击即切换）

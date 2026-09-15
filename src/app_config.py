@@ -12,11 +12,12 @@ DATA_DIR = BASE_DIR / "data"
 SETTINGS_PATH = DATA_DIR / "settings.json"
 SERVERS_CFG_PATH = DATA_DIR / "servers.json"
 DEFAULT_LOGS_PATH = DATA_DIR / "logs.log"
-USER_PAYLOADS_PATH = DATA_DIR / "payloads.json" # 进攻荷载或自定义资源
 RECORD_DIR = DATA_DIR / "record"
 # resources
 RESOURCES_DIR = BASE_DIR / "src" / "resources"
-DEFAULT_PAYLOADS_PATH = RESOURCES_DIR / "default_payloads.json"
+DEFAULT_PAYLOADS_PATH = RESOURCES_DIR / "default-payloads.json"
+# 应用图标
+ICON_PATH = BASE_DIR / "src" / "feature" / "icon.ico"
 # default params
 DEFAULT_TIMEOUT = 10
 MAX_LOG_LINES = 100
@@ -35,9 +36,6 @@ def ensure_directories():
     # servers.json default
     if not SERVERS_CFG_PATH.exists():
         SERVERS_CFG_PATH.write_text("[]",encoding="utf-8")   
-    # user_payloads.json default
-    if not USER_PAYLOADS_PATH.exists():
-        USER_PAYLOADS_PATH.write_text("[]", encoding="utf-8")
     # logs default
     if not DEFAULT_LOGS_PATH.exists():
         DEFAULT_LOGS_PATH.touch() 

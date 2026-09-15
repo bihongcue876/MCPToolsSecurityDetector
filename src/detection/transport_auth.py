@@ -210,7 +210,7 @@ def check_a4_handshake(config: ServerConfig, client: MCPClient | None) -> Detect
     if leaked: # 出现内部栈泄露
         return _result("A4", "协议握手与错误处理", "fail", f"协议版本：{version}；错误响应泄露内部信息：{evidence}", "建议服务器统一错误响应格式，屏蔽堆栈与路径")
     if evidence:
-        return _result("A4", "协议握手与错误处理", "pass", f"协议版本：{version}；错误响应未发现堆栈泄露", "无处理建议")
+        return _result("A4", "协议握手与错误处理", "pass", f"协议版本：{version}；错误响应返回：{evidence}", "错误响应详情未发现堆栈泄露")
     return _result("A4", "协议握手与错误处理", "pass", f"协议版本：{version}；服务器未返回错误详情", "无处理建议")
 
 # ---------- A4堆栈泄露特征 ----------
@@ -240,31 +240,58 @@ def _detect_stack_trace(text: str) -> list[str]:
     return hits
 
 def _probe_error_leakage(client: MCPClient) -> tuple[bool, str]:
-    """向客户端发送两条错误请求，检查错误响应是否泄露内部信息。返回(是否泄露, 证据文本)"""
+    """向客户端发送两条错误请求，检查错误响应是否泄露内部信息。返回(是否泄露, 探测证据文本)
+
+    泄露判定使用完整原文；展示给用户的证据对返回的 data 做中心掩码，
+    只保留头尾片段，防止把探测到的敏感内容直接扩散出去。
+    """
     probes = [
         {"jsonrpc": "2.0", "id": 9001, "method": "__nonexistent_method__"},
         {"jsonrpc": "2.0", "id": 9002, "method": "tools/call", "params": {}},
     ]
-    
-    fragments = []
+
+    fragments_raw = []
+    fragments_show = []
     for req in probes:
         try:
-            resp = client.send_raw(req)   # transport_auth.py 里 _probe_error_leakage 中
+            resp = client.send_raw(req)
         except Exception as e:
-            fragments.append(f"[{req['method']}]发送异常：{e}")
+            fragments_raw.append(f"[{req['method']}]发送异常：{e}")
+            fragments_show.append(f"[{req['method']}]发送异常：{_mask_center(str(e))}")
             continue
         if not isinstance(resp, dict):
+            fragments_raw.append(f"[{req['method']}]响应：{str(resp)[:200]}")
+            fragments_show.append(f"[{req['method']}]响应：{_mask_center(str(resp))}")
             continue
         err = resp.get("error")
         if not isinstance(err, dict):
+            fragments_raw.append(f"[{req['method']}]响应：{str(resp)[:200]}")
+            fragments_show.append(f"[{req['method']}]响应：{_mask_center(str(resp))}")
             continue
+        code = err.get("code", "")
         msg = str(err.get("message", ""))
         data = str(err.get("data", ""))
-        fragments.append(f"[{req['method']}] {msg} {data}".strip())
-    full = " | ".join(fragments)
+        frag_raw = f"[{req['method']}] code={code} {msg}"
+        frag_show = f"[{req['method']}] code={code} {msg}"
+        if data:
+            frag_raw += f" data={data}"
+            frag_show += f" data={_mask_center(data)}"
+        fragments_raw.append(frag_raw)
+        fragments_show.append(frag_show)
+    full = " | ".join(fragments_raw)
+    shown = " | ".join(fragments_show)
     if _detect_stack_trace(full):
-        return True, full[:400]
-    return False, ""
+        return True, f"命中泄露特征：{shown[:400]}"
+    return False, shown[:400]
+
+
+def _mask_center(text: str, head: int = 8, tail: int = 4, marker: str = "***") -> str:
+    """中心掩码：长文本只保留头 tail 字符，中间以 marker 替代"""
+    if not text:
+        return ""
+    if len(text) <= head + tail:
+        return text[:head] + marker
+    return text[:head] + marker + text[-tail:]
 
 # ---------- 内部工具 ----------
 
