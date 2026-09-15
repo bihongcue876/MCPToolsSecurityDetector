@@ -63,13 +63,13 @@ class ToolCallRecord(BaseRecord):
     tool_name: str = ""
     args_json: str = "" # 工具调用参数
     response_json: str = "" # 工具调用结论
-    is_attack: bool = False # 是否标记为攻击场景（普通调用恒为 False）
+    is_attack: bool = False # 是否标记为攻防测试场景（普通调用恒为 False）
 
-# 攻击模拟记录（与手动调用分离，避免 is_attack 标志二义）
+# 攻防检测记录（与手动调用分离，避免 is_attack 标志二义）
 @dataclass
 class AttackRecord(BaseRecord):
     tool_name: str = ""
-    payload_id: str = "" # 攻击载荷ID
+    payload_id: str = "" # 攻防载荷ID
     payload_content: str = "" # 载荷内容快照，payload 被删除后仍可回看
     args_json: str = "" # 最终参数字符串
     response_json: str = "" # 响应字符串

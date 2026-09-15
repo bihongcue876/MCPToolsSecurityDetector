@@ -29,7 +29,7 @@ class WorkspaceRecord(QWidget):
         top = QHBoxLayout()
         top.addWidget(QLabel("日志项目："))
         self.category_combo = QComboBox()
-        self.category_combo.addItems(["工具调用", "检测记录", "攻击记录"])
+        self.category_combo.addItems(["工具调用", "检测记录", "攻防记录"])
         self.category_combo.currentIndexChanged.connect(self._refresh)
         top.addWidget(self.category_combo)
 
@@ -88,7 +88,7 @@ class WorkspaceRecord(QWidget):
             return records, ["时间", "ID", "服务器", "工具", "参数", "响应"], lambda r: {
                 "时间": r.timestamp, "ID": r.id, "服务器": r.server_name,
                 "工具": r.tool_name, "参数": r.args_json, "响应": r.response_json}
-        if category == "攻击记录":
+        if category == "攻防记录":
             records = self.records.query_attacks(start_month=start, end_month=end)
             return records, ["时间", "ID", "服务器", "工具", "载荷", "响应"], lambda r: {
                 "时间": r.timestamp, "ID": r.id, "服务器": r.server_name,
@@ -107,6 +107,7 @@ class WorkspaceRecord(QWidget):
     def _refresh(self):
         records, headers, to_row = self._query()
         self._rows = [to_row(r) for r in reversed(records)]
+        self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
         self.table.setRowCount(0)
         self.detail_view.clear()
