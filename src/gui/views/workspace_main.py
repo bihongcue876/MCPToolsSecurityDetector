@@ -16,10 +16,11 @@ from core.connection import ConnectionManager
 from data.config_manager import ConfigManager
 from data.records_io import RecordsIO
 from core.utils import safe_json_dumps, safe_json_loads
-from core.models import ToolCallRecord
+from core.models import ToolCallRecord, AttackPayload
 from gui.dialogs.add_server_dialog import AddServerDialog
 from detection import engine
 from gui.dialogs.detection_summary_dialog import DetectionSummaryDialog
+from testing.attack_simulator import AttackSimulator, load_payloads
 
 STATUS_CN = {"pass": "通过", "warn": "警告", "fail": "失败", "skip": "跳过"}
 
@@ -215,6 +216,8 @@ class WorkspaceMain(QWidget):
         inner_layout.addWidget(self.group_a)
         self.group_b = self._build_group_b()
         inner_layout.addWidget(self.group_b)
+        self.group_attack = self._build_group_attack()
+        inner_layout.addWidget(self.group_attack)
         inner_layout.addStretch()
         scroll.setWidget(inner)
         outer.addWidget(scroll, 1)
@@ -292,6 +295,132 @@ class WorkspaceMain(QWidget):
         self.table_b.horizontalHeader().sectionResized.connect(self._refit_tables)
         layout.addWidget(self.table_b)
         return box
+
+    def _build_group_attack(self) -> QGroupBox:
+        """攻防检测组：选工具 → 选载荷 → 预览 → 确认执行 → 结果框"""
+        box = QGroupBox("攻防检测")
+        layout = QVBoxLayout(box)
+
+        row = QHBoxLayout()
+        self.attack_tool_combo = QComboBox()
+        self.attack_tool_combo.setPlaceholderText("选择工具")
+        self.attack_payload_combo = QComboBox()
+        self.attack_payload_combo.setPlaceholderText("选择载荷")
+        self.attack_payload_combo.currentIndexChanged.connect(self._on_attack_payload_changed)
+        self.attack_allow_write = QCheckBox("允许非只读工具")
+        row.addWidget(QLabel("工具："))
+        row.addWidget(self.attack_tool_combo, 1)
+        row.addWidget(QLabel("载荷："))
+        row.addWidget(self.attack_payload_combo, 1)
+        row.addWidget(self.attack_allow_write)
+        layout.addLayout(row)
+
+        # 载荷预览（只读）
+        layout.addWidget(QLabel("载荷预览："))
+        self.attack_payload_preview = QTextEdit()
+        self.attack_payload_preview.setReadOnly(True)
+        self.attack_payload_preview.setMaximumHeight(70)
+        layout.addWidget(self.attack_payload_preview)
+
+        # 执行按钮 + 结果框
+        self.btn_attack_execute = QPushButton("执行测试")
+        self.btn_attack_execute.clicked.connect(self._on_attack_execute_clicked)
+        layout.addWidget(self.btn_attack_execute)
+        self.attack_result = QTextEdit()
+        self.attack_result.setReadOnly(True)
+        self.attack_result.setPlaceholderText("执行结果显示：请求、响应、判定")
+        layout.addWidget(self.attack_result)
+
+        # 加载载荷库
+        self._payloads = load_payloads()
+        self._payload_map: dict[str, AttackPayload] = {}
+        for p in self._payloads:
+            label = f"{p.name}（{p.category}）"
+            self._payload_map[label] = p
+            self.attack_payload_combo.addItem(label)
+        return box
+
+    def _on_attack_payload_changed(self, index: int):
+        """载荷下拉变化时更新预览框"""
+        if index < 0 or not hasattr(self, "attack_payload_preview"):
+            return
+        label = self.attack_payload_combo.currentText()
+        p = self._payload_map.get(label)
+        if p is None:
+            self.attack_payload_preview.clear()
+            return
+        text = p.payload * max(1, p.repeat)
+        extra = f"\n判定特征：{', '.join(p.detect)}" if p.detect else ""
+        self.attack_payload_preview.setPlainText(text + extra)
+
+    def _on_attack_execute_clicked(self):
+        """攻防检测执行入口：确认 → attack_simulator 执行 → 展示并写日志"""
+        if not self.connection.is_connected():
+            QMessageBox.information(self, "提示", "请先连接服务器")
+            return
+        tool_name = self.attack_tool_combo.currentText()
+        if not tool_name:
+            QMessageBox.information(self, "提示", "请先选择工具")
+            return
+        label = self.attack_payload_combo.currentText()
+        payload = self._payload_map.get(label)
+        if payload is None:
+            QMessageBox.information(self, "提示", "请先选择载荷")
+            return
+        tool = self._tools_cache.get(tool_name) if hasattr(self, "_tools_cache") else None
+        if tool is not None and not self.attack_allow_write.isChecked():
+            # 只读特征判断：名称/描述含只读词或 readOnlyHint 为 True
+            name_desc = f"{tool.name} {tool.description}".lower()
+            readonly_hint = tool.annotations.get("readOnlyHint", False) if tool.annotations else False
+            if not readonly_hint and not any(k in name_desc for k in ("get", "list", "read", "view", "query", "search", "fetch", "show")):
+                reply = QMessageBox.question(
+                    self, "非只读工具",
+                    f"工具「{tool_name}」不具备只读特征，确认要对它执行攻防测试吗？",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+        # 确认对话框：工具名 + 载荷内容 + 预期风险
+        preview = (payload.payload * max(1, payload.repeat))[:200]
+        reply = QMessageBox.question(
+            self, "确认执行攻防测试",
+            f"工具：{tool_name}\n载荷：{payload.name}\n内容预览：{preview}\n\n"
+            f"将向目标服务器发送该载荷并观察响应，属于受控探测。确认执行？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        cfg = self.config_manager.get_by_id(self._current_server_id()) if self._current_server_id() else None
+        if cfg is None:
+            QMessageBox.information(self, "提示", "未找到当前服务器配置")
+            return
+        client = self.connection.client
+        if client is None:
+            QMessageBox.information(self, "提示", "客户端未就绪")
+            return
+        sim = AttackSimulator(client, cfg, self.records)
+        self.btn_attack_execute.setEnabled(False)
+        self.btn_attack_execute.setText("执行中...")
+        QApplication.processEvents()
+        try:
+            result = sim.execute(tool_name, payload, tool.input_schema if tool else None)
+        except Exception as e:
+            result = {
+                "payload": label, "args": None, "response": None,
+                "judgement": f"执行异常：{e}", "abnormal": False,
+            }
+        finally:
+            self.btn_attack_execute.setEnabled(True)
+            self.btn_attack_execute.setText("执行测试")
+        resp = result.get("response")
+        resp_text = safe_json_dumps(resp) if resp is not None else ""
+        self.attack_result.setPlainText(
+            f"载荷：{result.get('payload','')}\n"
+            f"参数：{safe_json_dumps(result.get('args')) if result.get('args') else '（未注入）'}\n"
+            f"响应：{resp_text}\n"
+            f"判定：{result.get('judgement','')}"
+        )
+        self._set_status(f"攻防测试完成：{result.get('judgement','')}")
 
     # ---------- 服务器列表 ----------
     def refresh_server_list(self):
@@ -468,11 +597,13 @@ class WorkspaceMain(QWidget):
         self.btn_disconnect.setEnabled(False)
         self.overview_tool_list.clear()
         self.overview_output.clear()
+        self.attack_tool_combo.clear()
         self._set_status("已断开连接")
 
     # ---------- 工具列表与执行 ----------
     def refresh_tool_list(self):
         self.overview_tool_list.clear()
+        self.attack_tool_combo.clear()
         self._tools_cache = {}
         try:
             tools = self.connection.list_tools(refresh=True)
@@ -484,6 +615,7 @@ class WorkspaceMain(QWidget):
             item = QListWidgetItem(t.name)
             item.setData(Qt.ItemDataRole.UserRole, t.name)
             self.overview_tool_list.addItem(item)
+            self.attack_tool_combo.addItem(t.name)
         self._set_status(f"已获取 {len(tools)} 个工具")
 
     def _on_execute_clicked(self):

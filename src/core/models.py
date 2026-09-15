@@ -40,7 +40,7 @@ class DetectionResult:
     evidence: str # 证据文本（原样片段或描述）
     suggestion: str # 情况描述（存在的问题与修复的方向）
 
-# 进攻模拟数据
+# 攻防检测载荷数据
 @dataclass
 class AttackPayload:
     id: str # 编号或uuid
@@ -48,6 +48,8 @@ class AttackPayload:
     category: str # 类别：prompt_injection, path_traversal, command_injection等
     payload: str # 实际注入工具的文本
     description: str # 用途说明
+    detect: list = field(default_factory=list) # 响应中出现任一特征即判定异常
+    repeat: int = 1 # 载荷重复次数（默认1）
     is_builtin: bool = False # 是否为固有数据（是则不予删除）
 
 # 记录基类：三类记录共用的通用字段
