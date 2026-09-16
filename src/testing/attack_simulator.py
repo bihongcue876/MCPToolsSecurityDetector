@@ -50,7 +50,8 @@ class AttackSimulator:
         return None
 
     # ---------- 载荷注入 ----------
-    def inject(self, payload: AttackPayload, schema: dict) -> tuple[dict | None, str]:
+    @staticmethod
+    def inject(payload: AttackPayload, schema: dict) -> tuple[dict | None, str]:
         """把载荷注入工具参数；返回 (args, 说明)；不可测时可注入返回 (None, 原因)
 
         按设计文档规则：

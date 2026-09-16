@@ -123,7 +123,7 @@ class WorkspaceMain(QWidget):
         form.addRow("参数：", self.config_args)
         layout.addLayout(form)
 
-        layout.addWidget(QLabel("配套 JSON："))
+        layout.addWidget(QLabel("配套JSON："))
         self.config_json = QTextEdit()
         self.config_json.setReadOnly(True)
         layout.addWidget(self.config_json)
@@ -172,13 +172,30 @@ class WorkspaceMain(QWidget):
         self.overview_desc.setMaximumHeight(80)
         right.addWidget(self.overview_desc)
 
-        right.addWidget(QLabel("输入（JSON 对象）："))
+        right.addWidget(QLabel("输入（JSON对象）："))
         self.overview_input = QTextEdit()
         right.addWidget(self.overview_input)
 
         btn_fill = QPushButton("根据Schema形式形成/重置输入示例")
         btn_fill.clicked.connect(self._on_fill_example_clicked)
         right.addWidget(btn_fill)
+
+        payload_row = QHBoxLayout()
+        payload_row.addWidget(QLabel("攻防载荷："))
+        self.overview_payload_combo = QComboBox()
+        self.overview_payload_combo.setPlaceholderText("选择固定载荷")
+        payload_row.addWidget(self.overview_payload_combo, 1)
+        btn_payload = QPushButton("一键填充载荷")
+        btn_payload.clicked.connect(self._on_payload_fill_clicked)
+        payload_row.addWidget(btn_payload)
+        right.addLayout(payload_row)
+
+        # 载荷库下拉项（与攻防检测共用默认载荷库）
+        self._overview_payload_map: dict[str, AttackPayload] = {}
+        for p in load_payloads():
+            label = f"{p.name}（{p.category}）"
+            self._overview_payload_map[label] = p
+            self.overview_payload_combo.addItem(label)
 
         right.addWidget(QLabel("输出："))
         self.overview_output = QTextEdit()
@@ -238,9 +255,9 @@ class WorkspaceMain(QWidget):
 
         row = QHBoxLayout()
         self.cb_a1 = QCheckBox("A1 TLS/明文传输")
-        self.cb_a2 = QCheckBox("A2 匿名访问")
-        self.cb_a3 = QCheckBox("A3 硬编码凭证")
-        self.cb_a4 = QCheckBox("A4 协议握手")
+        self.cb_a2 = QCheckBox("A2匿名访问")
+        self.cb_a3 = QCheckBox("A3硬编码凭证")
+        self.cb_a4 = QCheckBox("A4协议握手")
         for cb in (self.cb_a1, self.cb_a2, self.cb_a3, self.cb_a4):
             cb.setChecked(True)
             row.addWidget(cb)
@@ -269,10 +286,10 @@ class WorkspaceMain(QWidget):
         box = QGroupBox("B组：工具与注入风险")
         layout = QVBoxLayout(box)
         row = QHBoxLayout()
-        self.cb_b1 = QCheckBox("B1 工具元数据提示注入")
-        self.cb_b2 = QCheckBox("B2 工具结果响应注入")
-        self.cb_b3 = QCheckBox("B3 参数Schema约束不足")
-        self.cb_b4 = QCheckBox("B4 危险能力声明不一致")
+        self.cb_b1 = QCheckBox("B1工具元数据提示注入")
+        self.cb_b2 = QCheckBox("B2工具结果响应注入")
+        self.cb_b3 = QCheckBox("B3参数Schema约束不足")
+        self.cb_b4 = QCheckBox("B4危险能力声明不一致")
         for cb in (self.cb_b1, self.cb_b2, self.cb_b3, self.cb_b4):
             cb.setChecked(True)
             row.addWidget(cb)
@@ -505,7 +522,7 @@ class WorkspaceMain(QWidget):
                 QMessageBox.warning(self, "警告", "名称不能为空")
                 return
             if not self.config_manager.add(cfg):
-                QMessageBox.warning(self, "警告", "服务器 ID 已存在，未添加")
+                QMessageBox.warning(self, "警告", "服务器ID已存在，未添加")
                 return
             self.refresh_server_list()
 
@@ -633,7 +650,7 @@ class WorkspaceMain(QWidget):
         if raw:
             args = safe_json_loads(raw)
             if not isinstance(args, dict):
-                QMessageBox.warning(self, "参数错误", "输入内容必须是合法的 JSON 对象")
+                QMessageBox.warning(self, "参数错误", "输入内容必须是合法的JSON对象")
                 return
         else:
             args = {}
@@ -740,6 +757,28 @@ class WorkspaceMain(QWidget):
             QMessageBox.information(self, "提示", "请先在左侧选择工具")
             return
         self._prefill_input_example(name)
+
+    def _on_payload_fill_clicked(self):
+        """把所选攻防载荷一键填入当前工具的输入框，与攻防检测形成呼应"""
+        name = self._current_tool_name()
+        if not name:
+            QMessageBox.information(self, "提示", "请先在左侧选择工具")
+            return
+        label = self.overview_payload_combo.currentText()
+        p = self._overview_payload_map.get(label)
+        if p is None:
+            QMessageBox.information(self, "提示", "请先选择载荷")
+            return
+        tool = getattr(self, "_tools_cache", {}).get(name)
+        if tool is None:
+            QMessageBox.information(self, "提示", "未获取到该工具信息")
+            return
+        args, note = AttackSimulator.inject(p, tool.input_schema)
+        if args is None:
+            QMessageBox.information(self, "提示", note)
+            return
+        self.overview_input.setPlainText(safe_json_dumps(args))
+        self._set_status(f"已填充载荷：{p.name}")
 
     @staticmethod
     def _build_example_from_schema(schema: dict) -> dict:

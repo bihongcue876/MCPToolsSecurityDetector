@@ -315,8 +315,8 @@ class StdioMCPClient(MCPClient):
             code = self._process.returncode
             self._abort()
             self.last_error = (
-                f"STDIO子进程已退出(退出码 {code})，"
-                f"请检查命令路径 {self.config.command} 与服务器运行依赖"
+                f"STDIO子进程已退出(退出码{code})，"
+                f"请检查命令路径{self.config.command}与服务器运行依赖"
             )
             return False
         ok = super().connect()
@@ -388,7 +388,7 @@ class StdioMCPClient(MCPClient):
             self._process.stdin.flush()
         except (BrokenPipeError, OSError) as e:
             code = self._process.returncode if self._process is not None else None
-            self._abort(f"STDIO写入失败（子进程可能已退出，退出码 {code}）：{e}")
+            self._abort(f"STDIO写入失败（子进程可能已退出，退出码{code}）：{e}")
             raise RuntimeError(self._abort_error) from e
         # 通知无需响应
         if "id" not in message:
@@ -448,7 +448,7 @@ class SseMCPClient(MCPClient):
         # 等待 endpoint 事件就绪，给出消息端点
         if not self._endpoint_ready.wait(timeout=self.config.timeout):
             self._abort()
-            self.last_error = "SSE 连接失败：未获取到消息端点"
+            self.last_error = "SSE连接失败：未获取到消息端点"
             return False
         return super().connect()
 
@@ -471,7 +471,7 @@ class SseMCPClient(MCPClient):
                     elif line.startswith("data:"):
                         data = line[len("data:"):].strip()
         except Exception as e:
-            self.last_error = f"SSE 事件流中断：{e}"
+            self.last_error = f"SSE事件流中断：{e}"
         self._stop.set()
         self._pending_event.set()
 
@@ -491,12 +491,12 @@ class SseMCPClient(MCPClient):
 
     def _send(self, message: dict) -> dict | None:
         if not self._msg_endpoint:
-            raise RuntimeError("SSE 未就绪：缺少消息端点")
+            raise RuntimeError("SSE未就绪：缺少消息端点")
         http = self._get_http()
         rid = message.get("id")
         resp = http.post(self._msg_endpoint, json=message, headers=self._build_headers())
         if resp.status_code >= 400:
-            raise RuntimeError(f"MCP SSE 错误[{resp.status_code}]: {resp.text[:200]}")
+            raise RuntimeError(f"MCP SSE错误[{resp.status_code}]: {resp.text[:200]}")
         # 通知无需响应
         if "id" not in message:
             return None
@@ -515,7 +515,7 @@ class SseMCPClient(MCPClient):
                 return self._pending.pop(rid)
             self._pending_event.wait(timeout=0.5)
             self._pending_event.clear()
-        raise RuntimeError(f"SSE 请求未获得响应：{self.last_error}")
+        raise RuntimeError(f"SSE请求未获得响应：{self.last_error}")
 
     def disconnect(self):
         super().disconnect()

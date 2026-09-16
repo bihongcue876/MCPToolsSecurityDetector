@@ -58,3 +58,24 @@ def resolve_project_path(p: str) -> str:
     if path.is_absolute():
         return str(path)
     return str(BASE_DIR / path)
+
+def load_settings() -> dict:
+    """读取全局设置；文件缺失或损坏时回退到默认值并补写默认文件"""
+    ensure_directories()
+    try:
+        data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        data = {}
+    default = {
+        "timeout": DEFAULT_TIMEOUT,
+        "max_log_lines": MAX_LOG_LINES,
+    }
+    merged = {**default, **{k: v for k, v in (data or {}).items() if k in default}}
+    return merged
+
+def save_settings(settings: dict) -> None:
+    """写回全局设置（仅保留已知键）"""
+    allowed = {"timeout", "max_log_lines"}
+    data = {k: v for k, v in settings.items() if k in allowed}
+    ensure_directories()
+    SETTINGS_PATH.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")

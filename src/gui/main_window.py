@@ -16,7 +16,7 @@ from data.records_io import RecordsIO
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("MCP 安全检测")
+        self.setWindowTitle("MCP安全检测")
         self.resize(1000, 640)
 
         # 核心管理器
