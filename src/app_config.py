@@ -1,19 +1,26 @@
 from pathlib import Path
 import json
+import sys
 from datetime import datetime
 # 文件路径、信息管理、默认参数
 APP_NAME = "mcp-security-detector"
-VERSION = "0.0.0"
-# base dir and other dir
-BASE_DIR = Path(__file__).resolve().parent.parent
-# data
-DATA_DIR = BASE_DIR / "data"
+VERSION = "0.0.1"
+# 是否冻结(打包)运行态：源码与资源在 _MEIPASS 临时解压目录，数据放在可执行文件同级
+FROZEN = bool(getattr(sys, "frozen", False))
+# 资源根：开发态为项目根 src 的上层，打包态为 _MEIPASS
+_BUNDLE_ROOT = Path(getattr(sys, "_MEIPASS", "")).resolve()
+BASE_DIR = _BUNDLE_ROOT if FROZEN else Path(__file__).resolve().parent.parent
+# 数据目录：开发态位于项目根 data，打包态位于可执行文件同级 data
+if FROZEN:
+    DATA_DIR = Path(sys.executable).resolve().parent / "data"
+else:
+    DATA_DIR = BASE_DIR / "data"
 # default
 SETTINGS_PATH = DATA_DIR / "settings.json"
 SERVERS_CFG_PATH = DATA_DIR / "servers.json"
 DEFAULT_LOGS_PATH = DATA_DIR / "logs.log"
 RECORD_DIR = DATA_DIR / "record"
-# resources
+# resources（相对 BASE_DIR 的 src/resource 层级保持一致）
 RESOURCES_DIR = BASE_DIR / "src" / "resources"
 DEFAULT_PAYLOADS_PATH = RESOURCES_DIR / "default-payloads.json"
 # 应用图标
