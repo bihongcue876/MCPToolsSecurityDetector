@@ -6,3 +6,6 @@ src/testlocal
 __pycache__
 .vscode
 release
+dist
+build
+mcpDetect.spec
