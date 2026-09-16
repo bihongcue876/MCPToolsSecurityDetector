@@ -23,6 +23,7 @@ RECORD_DIR = DATA_DIR / "record"
 # resources（相对 BASE_DIR 的 src/resource 层级保持一致）
 RESOURCES_DIR = BASE_DIR / "src" / "resources"
 DEFAULT_PAYLOADS_PATH = RESOURCES_DIR / "default-payloads.json"
+DEMO_SERVERS_PATH = RESOURCES_DIR / "demo-servers.json"
 # 应用图标
 ICON_PATH = BASE_DIR / "src" / "feature" / "icon.ico"
 # default params

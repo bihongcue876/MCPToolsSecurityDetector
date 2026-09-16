@@ -1,15 +1,14 @@
 # MCP client
 import json
 import os
-import shutil
 import subprocess
-import sys
 import threading
 import time
 from pathlib import Path
 from urllib.parse import urljoin
 from abc import ABC, abstractmethod
 from core.models import ServerConfig, ToolInfo
+from core.server_runner import resolve_command
 from app_config import APP_NAME,VERSION,BASE_DIR
 from typing import Any
 
@@ -363,16 +362,9 @@ class StdioMCPClient(MCPClient):
         (App Execution Alias)”抢先解析到 Microsoft Store Python 等
         意外解释器而绕过 PATH 顺序；解释器类命令优先使用当前进程
         解释器（本项目服务器依赖 fastmcp 等均安装在当前 venv），
-        其余命令按 PATH 解析。
+        其余命令按 PATH 解析。解析规则与示范服务器启动构件共用。
         """
-        if not command:
-            return None
-        if os.path.isabs(command):
-            return command
-        base = os.path.basename(command).lower()
-        if base in ("python", "pythonw", "python3", "pythonw3", "py"):
-            return sys.executable
-        return shutil.which(command)
+        return resolve_command(command)
 
     def _send(self, message: dict) -> dict | None:
         if (self._process is None

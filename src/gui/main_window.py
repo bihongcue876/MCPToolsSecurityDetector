@@ -5,10 +5,12 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QAction, QActionGroup
 
 from gui.views.workspace_main import WorkspaceMain
+from gui.views.workspace_server import WorkspaceServer
 from gui.views.workspace_setting import WorkspaceSetting
 from gui.views.workspace_record import WorkspaceRecord
 
 from core.connection import ConnectionManager
+from core.server_runner import ServerProcessManager
 from data.config_manager import ConfigManager
 from data.records_io import RecordsIO
 
@@ -23,12 +25,14 @@ class MainWindow(QMainWindow):
         self.config_manager = ConfigManager()
         self.connection = ConnectionManager()
         self.records = RecordsIO()
+        self.server_manager = ServerProcessManager()
 
         # 中央堆叠区
         self.stack = QStackedWidget()
         self.stack.addWidget(WorkspaceMain(
             self.config_manager, self.connection, self.records
         ))
+        self.stack.addWidget(WorkspaceServer(self.server_manager))
         self.stack.addWidget(WorkspaceSetting())
         self.stack.addWidget(WorkspaceRecord(self.records))
         self.setCentralWidget(self.stack)
@@ -50,7 +54,7 @@ class MainWindow(QMainWindow):
         group = QActionGroup(self)
         group.setExclusive(True)
 
-        for idx, label in enumerate(["开始", "设置", "日志记录"]):
+        for idx, label in enumerate(["开始", "示范服务器", "设置", "日志记录"]):
             act = QAction(label, self)
             act.setCheckable(True)
             act.triggered.connect(lambda checked=False, i=idx: self.stack.setCurrentIndex(i))
@@ -58,3 +62,15 @@ class MainWindow(QMainWindow):
             tb.addAction(act)
             if idx == 0:
                 act.setChecked(True)
+
+    def closeEvent(self, event):
+        """退出前断开连接并关闭全部示范服务器，避免遗留孤儿进程"""
+        try:
+            self.connection.disconnect()
+        except Exception:
+            pass
+        try:
+            self.server_manager.stop_all()
+        except Exception:
+            pass
+        super().closeEvent(event)

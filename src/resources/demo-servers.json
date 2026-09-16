@@ -1,0 +1,139 @@
+{
+  "servers": [
+    {
+      "id": "default_calculate_stdio",
+      "name": "默认计算服务器（stdio）",
+      "transport": "stdio",
+      "script": "src/defaultMCPServers/default_calculate_stdio.py",
+      "args": [],
+      "port": null,
+      "url": "",
+      "run_key": "src/defaultMCPServers/default_calculate_stdio.py",
+      "tags": ["内置基础"],
+      "expect": {},
+      "description": "最基础的本地stdio计算服务器，提供echo/add/sub/mul/div，用于功能与连接验证。",
+      "connect": {
+        "transport": "stdio",
+        "command": "python",
+        "args": ["src/defaultMCPServers/default_calculate_stdio.py"]
+      }
+    },
+    {
+      "id": "default_calculate_sse",
+      "name": "默认计算服务器（sse）",
+      "transport": "sse",
+      "script": "src/defaultMCPServers/default_calculate_sse.py",
+      "args": [],
+      "port": 7654,
+      "url": "http://127.0.0.1:7654/sse",
+      "run_key": "src/defaultMCPServers/default_calculate_sse.py",
+      "tags": ["内置基础", "明文HTTP", "匿名可访问"],
+      "expect": {"A1": "fail", "A2": "warn"},
+      "description": "明文HTTP的SSE服务器，用于演示A1明文传输与A2匿名访问两项风险。",
+      "connect": {
+        "transport": "sse",
+        "url": "http://127.0.0.1:7654/sse"
+      }
+    },
+    {
+      "id": "default_calculate_http",
+      "name": "默认计算服务器（http）",
+      "transport": "http",
+      "script": "src/defaultMCPServers/default_calculate_http.py",
+      "args": [],
+      "port": 7655,
+      "url": "http://127.0.0.1:7655/mcp",
+      "run_key": "src/defaultMCPServers/default_calculate_http.py",
+      "tags": ["内置基础", "明文HTTP", "匿名可访问"],
+      "expect": {"A1": "fail", "A2": "warn"},
+      "description": "明文HTTP的streamable-http服务器，用于演示A1明文传输与A2匿名访问两项风险。",
+      "connect": {
+        "transport": "http",
+        "url": "http://127.0.0.1:7655/mcp"
+      }
+    },
+    {
+      "id": "demo_classic_vulnerable",
+      "name": "经典不安全样本（stdio）",
+      "transport": "stdio",
+      "script": "src/defaultMCPServers/demo_classic_vulnerable.py",
+      "args": [],
+      "port": null,
+      "url": "",
+      "run_key": "src/defaultMCPServers/demo_classic_vulnerable.py",
+      "tags": ["示范样本", "B组风险", "配置型凭证"],
+      "expect": {
+        "A1": "skip",
+        "A2": "skip",
+        "A3": "fail",
+        "A4": "pass",
+        "B1": "fail",
+        "B2": "fail",
+        "B3": "warn",
+        "B4": "fail"
+      },
+      "description": "经典不安全样本：元数据与响应含提示注入、Schema约束不足、能力声明不一致；配套连接配置内含明文密钥用于演示A3。",
+      "connect": {
+        "transport": "stdio",
+        "command": "python",
+        "args": ["src/defaultMCPServers/demo_classic_vulnerable.py"],
+        "env": {"DEMO_API_KEY": "sk-demo-1234567890abcdef"}
+      }
+    },
+    {
+      "id": "demo_secure_open",
+      "name": "安全示范服务器（HTTPS不鉴权）",
+      "transport": "http",
+      "script": "src/defaultMCPServers/demo_secure_https.py",
+      "args": [],
+      "port": 7656,
+      "url": "https://127.0.0.1:7656/mcp",
+      "run_key": "src/defaultMCPServers/demo_secure_https.py",
+      "tags": ["示范样本", "HTTPS", "全项通过"],
+      "expect": {
+        "A1": "pass",
+        "A2": "warn",
+        "A3": "pass",
+        "A4": "pass",
+        "B1": "pass",
+        "B2": "pass",
+        "B3": "pass",
+        "B4": "pass"
+      },
+      "description": "推荐的完全安全配置（HTTPS+严格Schema+正确能力声明）。未启用鉴权，因此A2按“匿名可访问”记为警告。与鉴权端点同进程同端口，启动一次即可。",
+      "notice": "连接前需让本工具信任本地CA：启动本工具前设置环境变量 SSL_CERT_FILE 指向 data/demo-certs/ca-bundle.pem（或导入 data/demo-certs/ca.cer 到受信任根）。",
+      "connect": {
+        "transport": "http",
+        "url": "https://127.0.0.1:7656/mcp"
+      }
+    },
+    {
+      "id": "demo_secure_auth",
+      "name": "安全示范服务器（HTTPS鉴权）",
+      "transport": "http",
+      "script": "src/defaultMCPServers/demo_secure_https.py",
+      "args": [],
+      "port": 7656,
+      "url": "https://127.0.0.1:7656/auth/mcp",
+      "run_key": "src/defaultMCPServers/demo_secure_https.py",
+      "tags": ["示范样本", "HTTPS", "Bearer鉴权"],
+      "expect": {
+        "A1": "pass",
+        "A2": "pass",
+        "A3": "fail",
+        "A4": "pass",
+        "B1": "pass",
+        "B2": "pass",
+        "B3": "pass",
+        "B4": "pass"
+      },
+      "description": "同端口同进程的鉴权端点：匿名探测返回401（A2通过）；但为连接此端点需在配置中保存令牌，故A3会命中明文凭证，用于演示“凭证不应写入配置”。",
+      "notice": "连接前需让本工具信任本地CA：启动本工具前设置环境变量 SSL_CERT_FILE 指向 data/demo-certs/ca-bundle.pem（或导入 data/demo-certs/ca.cer 到受信任根）。",
+      "connect": {
+        "transport": "http",
+        "url": "https://127.0.0.1:7656/auth/mcp",
+        "headers": {"Authorization": "Bearer demo-token-3f9a1c7e5b2d"}
+      }
+    }
+  ]
+}
