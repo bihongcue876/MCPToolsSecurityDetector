@@ -3,6 +3,8 @@
 # 本地证书由 cryptography 生成：首次运行输出 certutil 命令，导入本地CA后A1即为通过。
 import datetime
 import ipaddress
+import socket
+import sys
 from pathlib import Path
 from typing import Annotated
 
@@ -15,8 +17,12 @@ from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-BASE_DIR = Path(__file__).resolve().parents[2]
-CERT_DIR = BASE_DIR / "data" / "demo-certs"
+# 证书属数据：开发态放项目根 data，打包态放可执行文件同级 data（临时解压目录退出即丢，不可用）
+if getattr(sys, "frozen", False):
+    DATA_DIR = Path(sys.executable).resolve().parent / "data"
+else:
+    DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+CERT_DIR = DATA_DIR / "demo-certs"
 HOST = "127.0.0.1"
 PORT = 7656
 DEMO_TOKEN = "demo-token-3f9a1c7e5b2d"
@@ -181,6 +187,23 @@ class BearerPathMiddleware:
         await send({"type": "http.response.body", "body": body})
 
 
+def _port_in_use(host: str, port: int) -> bool:
+    """探测端口是否已被监听，用于给出更明确的启动失败提示"""
+    with socket.socket() as s:
+        s.settimeout(0.5)
+        return s.connect_ex((host, port)) == 0
+
+
+def _pause_on_failure(reason: str) -> None:
+    """启动失败时保留终端窗口，避免用户只看到一闪而过"""
+    print(f"启动失败：{reason}")
+    print(f"若为端口占用，请先停止占用 {PORT} 端口的程序，或修改本脚本的 PORT 常量。")
+    try:
+        input("按回车键关闭窗口...")
+    except Exception:
+        pass
+
+
 def demo_secure_https_run():
     ca_cer, srv_crt, srv_key = _ensure_certificates()
     bundle = CERT_DIR / "ca-bundle.pem"
@@ -198,14 +221,20 @@ def demo_secure_https_run():
     print("或把本地CA导入当前用户的受信任根证书颁发机构：")
     print(f'  certutil -addstore -user Root "{ca_cer}"')
     print("=" * 64)
-    uvicorn.run(
-        wrapped,
-        host=HOST,
-        port=PORT,
-        ssl_certfile=str(srv_crt),
-        ssl_keyfile=str(srv_key),
-        log_level="warning",
-    )
+    if _port_in_use(HOST, PORT):
+        _pause_on_failure(f"端口 {PORT} 已被占用")
+        return
+    try:
+        uvicorn.run(
+            wrapped,
+            host=HOST,
+            port=PORT,
+            ssl_certfile=str(srv_crt),
+            ssl_keyfile=str(srv_key),
+            log_level="warning",
+        )
+    except BaseException as e:  # 含端口占用等导致的 SystemExit
+        _pause_on_failure(str(e) or e.__class__.__name__)
 
 
 if __name__ == "__main__":

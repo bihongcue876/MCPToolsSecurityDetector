@@ -8,7 +8,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from app_config import BASE_DIR, DATA_DIR, DEMO_SERVERS_PATH
+from app_config import BASE_DIR, DATA_DIR, DEMO_SERVER_FLAG, DEMO_SERVERS_PATH, FROZEN
 
 try:
     import psutil
@@ -24,8 +24,9 @@ RUNNING_PATH = DATA_DIR / "running_servers.json"
 def resolve_command(command: str) -> str | None:
     """把配置中的命令解析为可直接启动的完整路径
 
-    解释器类命令优先使用当前进程解释器（本项目依赖均安装在当前环境），
-    其余命令按PATH解析。
+    开发态下解释器类命令优先使用当前进程解释器（本项目依赖均装在当前环境）；
+    打包态下当前进程是 exe，不能充当解释器，改为从 PATH 里寻找独立 Python。
+    其余命令一律按 PATH 解析。
     """
     if not command:
         return None
@@ -33,7 +34,13 @@ def resolve_command(command: str) -> str | None:
         return command
     base = os.path.basename(command).lower()
     if base in ("python", "pythonw", "python3", "pythonw3", "py"):
-        return sys.executable
+        if not FROZEN:
+            return sys.executable
+        for name in ("python", "python3", "py"):
+            found = shutil.which(name)
+            if found:
+                return found
+        return None
     return shutil.which(command)
 
 
@@ -98,6 +105,18 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
+def _pid_matches(pid: int, run_key: str) -> bool:
+    """校验存活的pid确实由该脚本启动，避免pid被复用后误认（无psutil时不做校验）"""
+    if psutil is None:
+        return True
+    name = os.path.basename(run_key)
+    try:
+        cmdline = psutil.Process(pid).cmdline()
+    except psutil.Error:
+        return False
+    return bool(name) and name in " ".join(cmdline)
+
+
 class ServerProcessManager:
     """示范服务器子进程管理：按运行键共享进程、持久化、退出时统一回收"""
 
@@ -154,15 +173,20 @@ class ServerProcessManager:
         script = str(server.get("script") or "")
         if not script:
             return False, "该条目缺少启动脚本"
-        command = resolve_command(str(server.get("command") or "python"))
-        if not command:
-            return False, f"无法解析命令：{server.get('command')}"
         script_path = Path(script)
         if not script_path.is_absolute():
             script_path = BASE_DIR / script_path
         if not script_path.exists():
             return False, f"启动脚本不存在：{script_path}"
-        cmd = [command, str(script_path)] + [str(a) for a in (server.get("args") or [])]
+        extra_args = [str(a) for a in (server.get("args") or [])]
+        if FROZEN:
+            # 打包态由 exe 自兼任服务器宿主，用自带解释器运行随包脚本，无需外部 Python
+            cmd = [sys.executable, DEMO_SERVER_FLAG, str(script_path)] + extra_args
+        else:
+            command = resolve_command(str(server.get("command") or "python"))
+            if not command:
+                return False, f"无法解析命令：{server.get('command')}"
+            cmd = [command, str(script_path)] + extra_args
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
         env["PYTHONIOENCODING"] = "utf-8"
@@ -239,7 +263,7 @@ class ServerProcessManager:
             pid = item.get("pid")
             if not key or not isinstance(pid, int):
                 continue
-            if _pid_alive(pid):
+            if _pid_alive(pid) and _pid_matches(pid, key):
                 self._pids[key] = pid
                 self._started_at[key] = str(item.get("started_at") or "")
         self._save_running()

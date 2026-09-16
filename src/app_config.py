@@ -4,7 +4,9 @@ import sys
 from datetime import datetime
 # 文件路径、信息管理、默认参数
 APP_NAME = "mcp-security-detector"
-VERSION = "0.0.1"
+VERSION = "0.1.0"
+# 打包态下 exe 自兼任示范服务器宿主时使用的命令行开关
+DEMO_SERVER_FLAG = "--run-demo-server"
 # 是否冻结(打包)运行态：源码与资源在 _MEIPASS 临时解压目录，数据放在可执行文件同级
 FROZEN = bool(getattr(sys, "frozen", False))
 # 资源根：开发态为项目根 src 的上层，打包态为 _MEIPASS
